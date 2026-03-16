@@ -60,7 +60,6 @@ def chunk_quasar_fwd(
     # lambda = ||k||^2
     k_norm_sq = (k_chunks ** 2).sum(dim=-1, keepdim=True)  # [B, H, NT, BT, 1]
     eps = 1e-8
-    # Replace fused_quasar_gate with direct computation
     alpha = (1 - torch.exp(-beta.view(-1, 1, 1, 1) * k_norm_sq)) / (k_norm_sq + eps)  # [B, H, NT, BT, 1]
     
     # KK^T = K @ K^T for all chunks
