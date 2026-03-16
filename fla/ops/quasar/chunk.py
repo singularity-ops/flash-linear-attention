@@ -60,23 +60,18 @@ def chunk_quasar_fwd(
     # lambda = ||k||^2
     k_norm_sq = (k_chunks ** 2).sum(dim=-1, keepdim=True)  # [B, H, NT, BT, 1]
     eps = 1e-8
-    # Replace fused_quasar_gate with direct computation as it was not defined
     alpha = (1 - torch.exp(-beta.view(-1, 1, 1, 1) * k_norm_sq)) / (k_norm_sq + eps)  # [B, H, NT, BT, 1]
     
-    # Vectorized intra-chunk computation for ALL chunks
     # KK^T = K @ K^T for all chunks
-    # [B, H, NT, BT, S] @ [B, H, NT, S, BT] -> [B, H, NT, BT, BT]
     KK_t = torch.matmul(k_chunks, k_chunks.transpose(-2, -1))  # [B, H, NT, BT, BT]
     
     # M = tril(alpha * KK^T) for all chunks
-    # alpha is [B, H, NT, BT, 1], KK_t is [B, H, NT, BT, BT]
     alpha_expanded = alpha.expand(-1, -1, -1, -1, BT)  # [B, H, NT, BT, BT]
     M = (alpha_expanded * KK_t).tril(diagonal=-1)  # [B, H, NT, BT, BT]
     
     # Compute L = I + M for all chunks
-    # I = [1, 1, NT, BT, BT]
     I = torch.eye(BT, device=q.device, dtype=q.dtype).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(B, H, NT, -1, -1)  # [B, H, NT, BT, BT]
-    L = I + M  # [B, H, NT, BT, BT] lower triangular with 1s on diagonal
+    L = I + M  # [B, H, NT, BT, BT]
     
     # Reshape for kernel: [B*H*NT, BT, BT]
     L_flat = L.view(B * H * NT, BT, BT)
@@ -116,8 +111,6 @@ def chunk_quasar_fwd(
         U_c = U[:, :, i]  # [B, H, BT, S]
         
         # Inter-chunk state transition
-        # A = I - K^T @ W
-        # B = K^T @ U
         I_full = torch.eye(S, device=q.device, dtype=q.dtype).unsqueeze(0).unsqueeze(0)  # [1, 1, S, S]
         A_trans = I_full - torch.matmul(k_c.transpose(-2, -1), W_c)  # [B, H, S, S]
         B_trans = torch.matmul(k_c.transpose(-2, -1), U_c)  # [B, H, S, S]
@@ -126,7 +119,6 @@ def chunk_quasar_fwd(
         state = torch.matmul(A_trans, state) + B_trans  # [B, H, S, S]
         
         # Compute output
-        # o = q @ S_prev + q @ K^T @ (U - W @ S_prev)
         o_inter = torch.matmul(q_c, state)  # [B, H, BT, S]
         o_intra = torch.matmul(q_c, torch.matmul(k_c.transpose(-2, -1), U_c - torch.matmul(W_c, state)))  # [B, H, BT, S]
         o_c = o_inter + o_intra  # [B, H, BT, S]
